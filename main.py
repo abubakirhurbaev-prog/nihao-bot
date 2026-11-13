@@ -12,8 +12,8 @@ from aiogram.types import (Message, CallbackQuery, InlineKeyboardButton, WebAppI
                            KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-TOKEN = os.environ["BOT_TOKEN"]
-BOSS = int(os.environ["BOSS_ID"])  # boshliqning Telegram ID raqami
+TOKEN = os.environ["9024883218:AAFjDQhzemG6H6wnBpqcAD1HV2n-MKkIENo"]
+BOSS = int(os.environ["8707797093"])  # boshliqning Telegram ID raqami
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "").rstrip("/")  # https://nomi.onrender.com
 BOT = None
 INDEX = Path(__file__).parent / "web" / "index.html"
