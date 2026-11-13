@@ -12,7 +12,7 @@ ctx.verify_mode = ssl.CERT_NONE
 TOKEN = "9024883218:AAFjDQhzemG6H6wnBpqcAD1HV2n-MKkIENo"
 GAME_URL = "https://dapper-gumption-5f4e6c.netlify.app/"
 CHANNEL = "@nihai_uqu"
-CHANNEL_LINK = "https://t.me/Nihaooquvmarkazi"
+CHANNEL_LINK = "https://t.me/nihai_uqu"
 
 API_URL = f"https://api.telegram.org/bot{TOKEN}/"
 
