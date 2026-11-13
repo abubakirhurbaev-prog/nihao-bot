@@ -11,7 +11,7 @@ ctx.verify_mode = ssl.CERT_NONE
 
 TOKEN = "9024883218:AAFjDQhzemG6H6wnBpqcAD1HV2n-MKkIENo"
 GAME_URL = "https://dapper-gumption-5f4e6c.netlify.app/"
-CHANNEL = "@Nihaooquvmarkazi"
+CHANNEL = "@nihai_uqu"
 CHANNEL_LINK = "https://t.me/Nihaooquvmarkazi"
 
 API_URL = f"https://api.telegram.org/bot{TOKEN}/"
@@ -136,7 +136,6 @@ import ssl
 import time
 import urllib.parse
 import urllib.request
-
 # SSL xatoligini chetlab o'tish
 ctx = ssl.create_default_context()
 ctx.check_hostname = False
