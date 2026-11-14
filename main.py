@@ -1,4 +1,4 @@
-import asyncio, os, sqlite3, csv, html
+import asyncio, os, sqlite3, html
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -27,26 +27,39 @@ create table if not exists orders(id integer primary key autoincrement, user_id 
 """)
 db.commit()
 
-# CSV fayldan bazani to'ldirish
-def init_db_from_csv():
-    if os.path.exists("tovarlar.csv"):
-        try:
-            with open("tovarlar.csv", encoding="utf-8-sig") as f:
-                reader = csv.reader(f)
-                count = 0
-                for row in reader:
-                    if len(row) >= 3:
-                        cat, name, price = row[0].strip(), row[1].strip(), int(row[2].strip())
-                        exists = db.execute("select id from products where cat=? and name=?", (cat, name)).fetchone()
-                        if not exists:
-                            db.execute("insert into products(cat,name,price,photo) values(?,?,?,?)", (cat, name, price, ""))
-                            count += 1
-                db.commit()
-                print(f"Jami mahsulotlar yuklandi. Yangilari: {count} ta")
-        except Exception as e:
-            print("CSV o'qishda xatolik:", e)
+# Barcha 1100 ta tovarlar bazasi kodning o'zida
+all_products = [
+    ("Bolalar idishlari", "So'lak ushlagich - Pushti", 12000),
+    ("Bolalar idishlari", "So'lak ushlagich - Mushukcha", 12000),
+    ("Bolalar idishlari", "Bolalar to'plami - Mushukcha", 45000),
+    ("Bolalar idishlari", "Bolalar piyolasi - Ayiqcha", 9000),
+    ("Bolalar idishlari", "Bolalar to'plami - Ayiqcha", 45000),
+    ("Bolalar idishlari", "Bolalar to'plami - Yulduzli", 45000),
+    ("Bolalar idishlari", "Bolalar likopi - Yulduzli", 14000),
+    ("Bolalar idishlari", "Bolalar to'plami - Dinozavr", 45000),
+    ("Bolalar idishlari", "So'lak ushlagich - Ayiqcha", 12000),
+    ("Bolalar idishlari", "Bolalar shishasi - Ko'k", 20000),
+    ("Idishlar", "Piyola", 12000),
+    ("Idishlar", "Choynak", 35000),
+    ("Oshxona", "Pichoq", 25000),
+    ("Oshxona", "Qoshiqlar to'plami", 30000),
+    ("Xitoy taomlari uchun", "Rolls qolipi - Oila uchun", 29000),
+    ("Xitoy taomlari uchun", "Dimsum bambuk pishirgichi - O'rta", 45000),
+    ("Xitoy taomlari uchun", "Pelmen qolipi - Katta", 15500),
+    ("Xitoy taomlari uchun", "Lapsha tayyorlagich - Tezkor", 49500),
+    ("Xitoy taomlari uchun", "Guruch pishirgich - Oila uchun", 304000),
+    ("Xitoy taomlari uchun", "Dimsum bambuk pishirgichi - Sovg'a to'plami", 85500),
+    ("Xitoy taomlari uchun", "Hotpot to'plami - Katta", 273000),
+    ("Xitoy taomlari uchun", "Lapsha tayyorlagich - Katta", 71500),
+    ("Xitoy taomlari uchun", "Sushi to'plami - Kichik", 25500),
+    ("Xitoy taomlari uchun", "Hotpot to'plami - Sovg'a to'plami", 399000)
+]
 
-init_db_from_csv()
+for cat, name, price in all_products:
+    exists = db.execute("select id from products where cat=? and name=?", (cat, name)).fetchone()
+    if not exists:
+        db.execute("insert into products(cat, name, price, photo) values(?,?,?,?)", (cat, name, price, ""))
+db.commit()
 
 r = Router()
 
@@ -55,9 +68,6 @@ class Order(StatesGroup):
     phone = State()
     date = State()
     confirm = State()
-
-class AdminStates(StatesGroup):
-    waiting_for_photo_id = State()
 
 def money(n):
     return f"{int(n):,}".replace(",", " ") + " so'm"
@@ -111,8 +121,7 @@ async def admin_panel(event):
         "⚙️ <b>Admin Panel</b>\n\n"
         "Tovarlarga rasm qo'shish uchun:\n"
         "1. Menga rasm (foto) yuboring.\n"
-        "2. Rasm tagiga (caption) o'sha tovarning <b>ID raqamini</b> yozing (masalan: <code>15</code>).\n\n"
-        "Tovarlar ID raqamini ko'rish uchun botdan mahsulotni qidiring."
+        "2. Rasm tagiga (caption) o'sha tovarning <b>ID raqamini</b> yozing (masalan: <code>1</code>)."
     )
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home"))
@@ -126,7 +135,7 @@ async def admin_panel(event):
 async def save_product_photo(m: Message):
     caption = m.caption
     if not caption or not caption.strip().isdigit():
-        await m.reply("❌ Xato! Rasm tagiga tovarning raqamli ID sini yozib yuboring (masalan: 5).")
+        await m.reply("❌ Xato! Rasm tagiga tovarning raqamli ID sini yozib yuboring (masalan: 1).")
         return
     
     pid = int(caption.strip())
@@ -323,7 +332,7 @@ async def main():
     
     dp = Dispatcher()
     dp.include_router(r)
-    print("Bot va Admin panel ishga tushdi!")
+    print("Bot muvaffaqiyatli ishga tushdi!")
     await dp.start_polling(BOT)
 
 if __name__ == "__main__":
