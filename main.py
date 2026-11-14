@@ -12,7 +12,7 @@ from aiogram.types import (Message, CallbackQuery, InlineKeyboardButton, WebAppI
                            KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# Sizning sozlamalaringiz
+# Sizning aniq sozlamalaringiz
 TOKEN = "9024883218:AAFjDQhzemG6H6wnBpqcAD1HV2n-MKkIENo"
 BOSS = 8707797093  # Boshliqning Telegram ID raqami
 BOSS_PHONE = "+1 347 507 9829"  # Boshliqning telefon raqami
@@ -21,7 +21,7 @@ WEBAPP_URL = "https://plum-loralee-24.tiiny.site"
 BOT = None
 PER_PAGE = 8
 
-db = sqlite3.connect(os.environ.get("DB_PATH", "shop.db"))
+db = sqlite3.connect(os.environ.get("DB_PATH", "shop.db"), check_same_thread=False)
 db.row_factory = sqlite3.Row
 db.executescript("""
 create table if not exists products(id integer primary key autoincrement, cat text, name text, price integer);
@@ -65,7 +65,7 @@ def home_kb():
     return kb.as_markup()
 
 
-HOME_TEXT = "🏠 Xitoy oshxona buyumlari do'koni\nBo'limni tanlang yoki mahsulot nomini yozib qidiring:"
+HOME_TEXT = "🏠 Xitoy oshxona va uy-ro'zg'or buyumlari do'koni\nBo'limni tanlang yoki mahsulot nomini yozib qidiring:"
 
 
 async def show(cb: CallbackQuery, text, kb):
@@ -91,7 +91,11 @@ async def home(cb: CallbackQuery):
 async def cat_page(cb: CallbackQuery):
     _, i, p = cb.data.split(":")
     i, p = int(i), int(p)
-    cat = cats()[i]
+    category_list = cats()
+    if i >= len(category_list):
+        await cb.answer("Bo'lim topilmadi", show_alert=True)
+        return
+    cat = category_list[i]
     rows = db.execute("select * from products where cat=? order by id", (cat,)).fetchall()
     kb = InlineKeyboardBuilder()
     for x in rows[p * PER_PAGE:(p + 1) * PER_PAGE]:
