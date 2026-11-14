@@ -1,4 +1,4 @@
-import asyncio, os, sqlite3, csv, io, html
+import asyncio, os, sqlite3, csv, html
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -27,7 +27,7 @@ create table if not exists orders(id integer primary key autoincrement, user_id 
 """)
 db.commit()
 
-# Avtomatik ravishda tovarlar.csv dan bazani to'ldirish
+# CSV fayldan bazani to'ldirish
 def init_db_from_csv():
     if os.path.exists("tovarlar.csv"):
         try:
@@ -37,20 +37,18 @@ def init_db_from_csv():
                 for row in reader:
                     if len(row) >= 3:
                         cat, name, price = row[0].strip(), row[1].strip(), int(row[2].strip())
-                        # Takrorlanmasligi uchun tekshiramiz
                         exists = db.execute("select id from products where cat=? and name=?", (cat, name)).fetchone()
                         if not exists:
-                            db.execute("insert into products(cat,name,price) values(?,?,?)", (cat, name, price))
+                            db.execute("insert into products(cat,name,price,photo) values(?,?,?,?)", (cat, name, price, ""))
                             count += 1
                 db.commit()
-                print(f"Bazada jami mahsulotlar yuklandi. Yangilari: {count} ta")
+                print(f"Jami mahsulotlar yuklandi. Yangilari: {count} ta")
         except Exception as e:
             print("CSV o'qishda xatolik:", e)
 
 init_db_from_csv()
 
 r = Router()
-is_boss = F.from_user.id == BOSS
 
 class Order(StatesGroup):
     name = State()
@@ -58,13 +56,16 @@ class Order(StatesGroup):
     date = State()
     confirm = State()
 
+class AdminStates(StatesGroup):
+    waiting_for_photo_id = State()
+
 def money(n):
     return f"{int(n):,}".replace(",", " ") + " so'm"
 
 def cats():
     return [x[0] for x in db.execute("select distinct cat from products order by cat")]
 
-def home_kb():
+def home_kb(is_admin=False):
     kb = InlineKeyboardBuilder()
     for i, c in enumerate(cats()):
         kb.button(text=c, callback_data=f"c:{i}:0")
@@ -72,6 +73,8 @@ def home_kb():
     if WEBAPP_URL:
         kb.row(InlineKeyboardButton(text="🛍 Do'konni ochish", web_app=WebAppInfo(url=WEBAPP_URL)))
     kb.row(InlineKeyboardButton(text="🛒 Savat", callback_data="cart"))
+    if is_admin:
+        kb.row(InlineKeyboardButton(text="⚙️ Admin Panel", callback_data="admin_panel"))
     return kb.as_markup()
 
 HOME_TEXT = "🏠 Xitoy oshxona va uy-ro'zg'or buyumlari do'koni\nBo'limni tanlang yoki mahsulot nomini yozib qidiring:"
@@ -86,12 +89,59 @@ async def show(cb: CallbackQuery, text, kb):
 @r.message(CommandStart())
 async def start(m: Message, state: FSMContext):
     await state.clear()
-    await m.answer(HOME_TEXT, reply_markup=home_kb())
+    is_admin = (m.from_user.id == BOSS)
+    await m.answer(HOME_TEXT, reply_markup=home_kb(is_admin))
 
 @r.callback_query(F.data == "home")
 async def home(cb: CallbackQuery):
-    await show(cb, HOME_TEXT, home_kb())
+    is_admin = (cb.from_user.id == BOSS)
+    await show(cb, HOME_TEXT, home_kb(is_admin))
 
+# --- ADMIN PANEL ---
+@r.message(Command("admin"))
+@r.callback_query(F.data == "admin_panel")
+async def admin_panel(event):
+    uid = event.from_user.id
+    if uid != BOSS:
+        if isinstance(event, CallbackQuery):
+            await event.answer("Siz admin emassiz!", show_alert=True)
+        return
+    
+    text = (
+        "⚙️ <b>Admin Panel</b>\n\n"
+        "Tovarlarga rasm qo'shish uchun:\n"
+        "1. Menga rasm (foto) yuboring.\n"
+        "2. Rasm tagiga (caption) o'sha tovarning <b>ID raqamini</b> yozing (masalan: <code>15</code>).\n\n"
+        "Tovarlar ID raqamini ko'rish uchun botdan mahsulotni qidiring."
+    )
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home"))
+    
+    if isinstance(event, CallbackQuery):
+        await show(event, text, kb.as_markup())
+    else:
+        await event.answer(text, reply_markup=kb.as_markup(), parse_mode="HTML")
+
+@r.message(F.photo, F.from_user.id == BOSS)
+async def save_product_photo(m: Message):
+    caption = m.caption
+    if not caption or not caption.strip().isdigit():
+        await m.reply("❌ Xato! Rasm tagiga tovarning raqamli ID sini yozib yuboring (masalan: 5).")
+        return
+    
+    pid = int(caption.strip())
+    photo_id = m.photo[-1].file_id
+    
+    product = db.execute("select * from products where id=?", (pid,)).fetchone()
+    if not product:
+        await m.reply(f"❌ #{pid} raqamli tovar topilmadi!")
+        return
+    
+    db.execute("update products set photo=? where id=?", (photo_id, pid))
+    db.commit()
+    await m.reply(f"✅ #{pid} ({product['name']}) uchun rasm muvaffaqiyatli saqlandi!")
+
+# --- KATALOG VA MAHSULOTLAR ---
 @r.callback_query(F.data.startswith("c:"))
 async def cat_page(cb: CallbackQuery):
     _, i, p = cb.data.split(":")
@@ -127,7 +177,8 @@ async def product_card(cb: CallbackQuery):
     kb.row(InlineKeyboardButton(text="➕ Savatga qo'shish", callback_data=f"a:{x['id']}"))
     kb.row(InlineKeyboardButton(text="🛒 Savat", callback_data="cart"),
            InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home"))
-    caption = f"<b>{html.escape(x['name'])}</b>\n💰 {money(x['price'])}"
+    
+    caption = f"<b>🆔 ID: {x['id']} | {html.escape(x['name'])}</b>\n💰 {money(x['price'])}"
     if x["photo"]:
         await cb.message.answer_photo(x["photo"], caption=caption, reply_markup=kb.as_markup())
     else:
@@ -162,7 +213,7 @@ async def cart(cb: CallbackQuery):
         db.commit()
     rows = cart_rows(uid)
     if not rows:
-        await show(cb, "🛒 Savat bo'sh.", home_kb())
+        await show(cb, "🛒 Savat bo'sh.", home_kb(uid == BOSS))
         return
     body, total = cart_text(rows)
     kb = InlineKeyboardBuilder()
@@ -183,7 +234,7 @@ async def noop(cb: CallbackQuery):
 async def clear(cb: CallbackQuery):
     db.execute("delete from cart where user_id=?", (cb.from_user.id,))
     db.commit()
-    await cb.message.edit_text("🗑 Savat tozalandi.", reply_markup=home_kb())
+    await cb.message.edit_text("🗑 Savat tozalandi.", reply_markup=home_kb(cb.from_user.id == BOSS))
 
 @r.callback_query(F.data == "checkout")
 async def checkout(cb: CallbackQuery, state: FSMContext):
@@ -221,7 +272,7 @@ async def got_date(m: Message, state: FSMContext):
 @r.callback_query(F.data == "cancel")
 async def cancel(cb: CallbackQuery, state: FSMContext):
     await state.clear()
-    await cb.message.edit_text("Bekor qilindi.", reply_markup=home_kb())
+    await cb.message.edit_text("Bekor qilindi.", reply_markup=home_kb(cb.from_user.id == BOSS))
 
 @r.callback_query(F.data == "ok", Order.confirm)
 async def confirm(cb: CallbackQuery, state: FSMContext, bot: Bot):
@@ -244,16 +295,15 @@ async def confirm(cb: CallbackQuery, state: FSMContext, bot: Bot):
     await state.clear()
     await cb.message.edit_text(f"✅ Buyurtma #{oid} qabul qilindi! Tez orada bog'lanamiz.")
 
-# Oddiy qidirish
 @r.message(StateFilter(None), F.text, ~F.text.startswith("/"))
 async def search(m: Message):
     rows = db.execute("select * from products where name like ? limit 15", (f"%{m.text}%",)).fetchall()
     if not rows:
-        await m.answer("Topilmadi. Boshqa nom yozing.", reply_markup=home_kb())
+        await m.answer("Topilmadi. Boshqa nom yozing.", reply_markup=home_kb(m.from_user.id == BOSS))
         return
     kb = InlineKeyboardBuilder()
     for x in rows:
-        kb.button(text=f"{x['name']} — {money(x['price'])}", callback_data=f"p:{x['id']}")
+        kb.button(text=f"ID:{x['id']} | {x['name']} — {money(x['price'])}", callback_data=f"p:{x['id']}")
     kb.adjust(1)
     kb.row(InlineKeyboardButton(text="🛒 Savat", callback_data="cart"))
     await m.answer("🔎 Natijalar:", reply_markup=kb.as_markup())
@@ -273,7 +323,7 @@ async def main():
     
     dp = Dispatcher()
     dp.include_router(r)
-    print("Bot muvaffaqiyatli ishga tushdi!")
+    print("Bot va Admin panel ishga tushdi!")
     await dp.start_polling(BOT)
 
 if __name__ == "__main__":
