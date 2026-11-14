@@ -27,7 +27,7 @@ create table if not exists orders(id integer primary key autoincrement, user_id 
 """)
 db.commit()
 
-# Barcha 1100 ta tovarlar bazasi kodning o'zida
+# Barcha 1100 ta tovarlar bazasi
 all_products = [
     ("Bolalar idishlari", "So'lak ushlagich - Pushti", 12000),
     ("Bolalar idishlari", "So'lak ushlagich - Mushukcha", 12000),
@@ -39,10 +39,36 @@ all_products = [
     ("Bolalar idishlari", "Bolalar to'plami - Dinozavr", 45000),
     ("Bolalar idishlari", "So'lak ushlagich - Ayiqcha", 12000),
     ("Bolalar idishlari", "Bolalar shishasi - Ko'k", 20000),
+    ("Bolalar idishlari", "Bolalar shishasi - Qizil", 20000),
+    ("Bolalar idishlari", "Bolalar qoshiq va vilka to'plami", 18000),
+    ("Bolalar idishlari", "Silikon bavnyka - Ko'k", 14000),
+    ("Bolalar idishlari", "Silikon bavnyka - Sariq", 14000),
+    ("Bolalar idishlari", "Bolalar ovqat idishi - Termos", 85000),
+    ("Bolalar idishlari", "Bolalar stakani - Sovg'a quti", 25000),
+    ("Bolalar idishlari", "Bolalar idish yuvish gubkasi", 6000),
+    ("Bolalar idishlari", "Bolalar salfetka tutqichi", 11000),
+    ("Bolalar idishlari", "Bolalar suv idishi - Trubkali", 32000),
+    ("Bolalar idishlari", "Bolalar ovqatlanish taxtachasi", 28000),
     ("Idishlar", "Piyola", 12000),
     ("Idishlar", "Choynak", 35000),
+    ("Idishlar", "Kosa - Oq", 15000),
+    ("Idishlar", "Kosa - Gul naqshli", 18000),
+    ("Idishlar", "Likopcha - Kichik", 10000),
+    ("Idishlar", "Likopcha - Katta", 22000),
+    ("Idishlar", "Stakan - Shisha", 8000),
+    ("Idishlar", "Stakanlar to'plami (6 talik)", 45000),
+    ("Idishlar", "Fنجan va likopcha", 24000),
+    ("Idishlar", "Qahva uchun stakan", 16000),
     ("Oshxona", "Pichoq", 25000),
     ("Oshxona", "Qoshiqlar to'plami", 30000),
+    ("Oshxona", "Vilka to'plami", 30000),
+    ("Oshxona", "Oshxona qaychisi", 18000),
+    ("Oshxona", "Kesish taxtasi - Yog'och", 32000),
+    ("Oshxona", "Kesish taxtasi - Plastik", 22000),
+    ("Oshxona", "Ziravor idishlari to'plami", 55000),
+    ("Oshxona", "Yog' solinadigan idish", 42000),
+    ("Oshxona", "Tuz va murch idishi", 15000),
+    ("Oshxona", "Salfetka idishi", 12000),
     ("Xitoy taomlari uchun", "Rolls qolipi - Oila uchun", 29000),
     ("Xitoy taomlari uchun", "Dimsum bambuk pishirgichi - O'rta", 45000),
     ("Xitoy taomlari uchun", "Pelmen qolipi - Katta", 15500),
@@ -52,7 +78,17 @@ all_products = [
     ("Xitoy taomlari uchun", "Hotpot to'plami - Katta", 273000),
     ("Xitoy taomlari uchun", "Lapsha tayyorlagich - Katta", 71500),
     ("Xitoy taomlari uchun", "Sushi to'plami - Kichik", 25500),
-    ("Xitoy taomlari uchun", "Hotpot to'plami - Sovg'a to'plami", 399000)
+    ("Xitoy taomlari uchun", "Hotpot to'plami - Sovg'a to'plami", 399000),
+    ("Oshxona jihozlari", "Blender - Qo'lda ishlaydigan", 125000),
+    ("Oshxona jihozlari", "Mikser - Elektr", 145000),
+    ("Oshxona jihozlari", "Go'sht qiymalagich", 280000),
+    ("Oshxona jihozlari", "Sharbat chiqargich", 320000),
+    ("Oshxona jihozlari", "Elektr choynak", 110000),
+    ("Oshxona jihozlari", "Toster", 135000),
+    ("Oshxona jihozlari", "Multivarka", 450000),
+    ("Oshxona jihozlari", "Qahva qaynatgich", 195000),
+    ("Oshxona jihozlari", "Kuhnya tarozisi - Elektron", 35000),
+    ("Oshxona jihozlari", "Oshxona taymer", 18000)
 ]
 
 for cat, name, price in all_products:
@@ -312,28 +348,4 @@ async def search(m: Message):
         return
     kb = InlineKeyboardBuilder()
     for x in rows:
-        kb.button(text=f"ID:{x['id']} | {x['name']} — {money(x['price'])}", callback_data=f"p:{x['id']}")
-    kb.adjust(1)
-    kb.row(InlineKeyboardButton(text="🛒 Savat", callback_data="cart"))
-    await m.answer("🔎 Natijalar:", reply_markup=kb.as_markup())
-
-async def main():
-    global BOT
-    BOT = Bot(TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
-    
-    app = web.Application()
-    app.add_routes([web.get("/", lambda r: web.Response(text="Bot ishlayapti!"))])
-    runner = web.AppRunner(app)
-    await runner.setup()
-    await web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", 8080))).start()
-
-    if WEBAPP_URL:
-        await BOT.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Do'kon", web_app=WebAppInfo(url=WEBAPP_URL)))
-    
-    dp = Dispatcher()
-    dp.include_router(r)
-    print("Bot muvaffaqiyatli ishga tushdi!")
-    await dp.start_polling(BOT)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        kb.button(text=f"ID:{x['id']} | {x['name']} — {money(
