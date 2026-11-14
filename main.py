@@ -1,7 +1,4 @@
-import asyncio, os, sqlite3, csv, io, html, json, hmac, hashlib
-from collections import OrderedDict
-from pathlib import Path
-from urllib.parse import parse_qsl
+import asyncio, os, sqlite3, csv, io, html
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -12,10 +9,9 @@ from aiogram.types import (Message, CallbackQuery, InlineKeyboardButton, WebAppI
                            KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-# Sizning aniq sozlamalaringiz
 TOKEN = "9024883218:AAFjDQhzemG6H6wnBpqcAD1HV2n-MKkIENo"
-BOSS = 8707797093  # Boshliqning Telegram ID raqami
-BOSS_PHONE = "+1 347 507 9829"  # Boshliqning telefon raqami
+BOSS = 8707797093
+BOSS_PHONE = "+1 347 507 9829"
 WEBAPP_URL = "https://plum-loralee-24.tiiny.site"
 
 BOT = None
@@ -24,20 +20,37 @@ PER_PAGE = 8
 db = sqlite3.connect(os.environ.get("DB_PATH", "shop.db"), check_same_thread=False)
 db.row_factory = sqlite3.Row
 db.executescript("""
-create table if not exists products(id integer primary key autoincrement, cat text, name text, price integer);
+create table if not exists products(id integer primary key autoincrement, cat text, name text, price integer, photo text);
 create table if not exists cart(user_id integer, pid integer, qty integer, primary key(user_id, pid));
 create table if not exists orders(id integer primary key autoincrement, user_id integer, name text,
   phone text, date text, total integer, created text default current_timestamp);
 """)
-try:
-    db.execute("alter table products add column photo text")
-except sqlite3.OperationalError:
-    pass
 db.commit()
+
+# Avtomatik ravishda tovarlar.csv dan bazani to'ldirish
+def init_db_from_csv():
+    if os.path.exists("tovarlar.csv"):
+        try:
+            with open("tovarlar.csv", encoding="utf-8-sig") as f:
+                reader = csv.reader(f)
+                count = 0
+                for row in reader:
+                    if len(row) >= 3:
+                        cat, name, price = row[0].strip(), row[1].strip(), int(row[2].strip())
+                        # Takrorlanmasligi uchun tekshiramiz
+                        exists = db.execute("select id from products where cat=? and name=?", (cat, name)).fetchone()
+                        if not exists:
+                            db.execute("insert into products(cat,name,price) values(?,?,?)", (cat, name, price))
+                            count += 1
+                db.commit()
+                print(f"Bazada jami mahsulotlar yuklandi. Yangilari: {count} ta")
+        except Exception as e:
+            print("CSV o'qishda xatolik:", e)
+
+init_db_from_csv()
 
 r = Router()
 is_boss = F.from_user.id == BOSS
-
 
 class Order(StatesGroup):
     name = State()
@@ -45,14 +58,11 @@ class Order(StatesGroup):
     date = State()
     confirm = State()
 
-
 def money(n):
     return f"{int(n):,}".replace(",", " ") + " so'm"
 
-
 def cats():
     return [x[0] for x in db.execute("select distinct cat from products order by cat")]
-
 
 def home_kb():
     kb = InlineKeyboardBuilder()
@@ -64,9 +74,7 @@ def home_kb():
     kb.row(InlineKeyboardButton(text="🛒 Savat", callback_data="cart"))
     return kb.as_markup()
 
-
 HOME_TEXT = "🏠 Xitoy oshxona va uy-ro'zg'or buyumlari do'koni\nBo'limni tanlang yoki mahsulot nomini yozib qidiring:"
-
 
 async def show(cb: CallbackQuery, text, kb):
     if cb.message.photo:
@@ -75,17 +83,14 @@ async def show(cb: CallbackQuery, text, kb):
     else:
         await cb.message.edit_text(text, reply_markup=kb)
 
-
 @r.message(CommandStart())
 async def start(m: Message, state: FSMContext):
     await state.clear()
     await m.answer(HOME_TEXT, reply_markup=home_kb())
 
-
 @r.callback_query(F.data == "home")
 async def home(cb: CallbackQuery):
     await show(cb, HOME_TEXT, home_kb())
-
 
 @r.callback_query(F.data.startswith("c:"))
 async def cat_page(cb: CallbackQuery):
@@ -112,7 +117,6 @@ async def cat_page(cb: CallbackQuery):
            InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home"))
     await cb.message.edit_text(f"📂 {cat}  ({p+1}/{max(1,-(-len(rows)//PER_PAGE))})", reply_markup=kb.as_markup())
 
-
 @r.callback_query(F.data.startswith("p:"))
 async def product_card(cb: CallbackQuery):
     x = db.execute("select * from products where id=?", (int(cb.data[2:]),)).fetchone()
@@ -130,7 +134,6 @@ async def product_card(cb: CallbackQuery):
         await cb.message.answer(caption, reply_markup=kb.as_markup())
     await cb.answer()
 
-
 @r.callback_query(F.data.startswith("a:"))
 async def add(cb: CallbackQuery):
     pid = int(cb.data[2:])
@@ -139,17 +142,14 @@ async def add(cb: CallbackQuery):
     db.commit()
     await cb.answer("✅ Savatga qo'shildi")
 
-
 def cart_rows(uid):
     return db.execute("select p.id,p.name,p.price,c.qty from cart c join products p on p.id=c.pid "
                       "where c.user_id=?", (uid,)).fetchall()
-
 
 def cart_text(rows):
     lines = [f"{x['name']}\n   {x['qty']} × {money(x['price'])} = {money(x['qty']*x['price'])}" for x in rows]
     total = sum(x["qty"] * x["price"] for x in rows)
     return "\n".join(lines), total
-
 
 @r.callback_query(F.data == "cart")
 @r.callback_query(F.data.startswith("q:"))
@@ -175,11 +175,9 @@ async def cart(cb: CallbackQuery):
            InlineKeyboardButton(text="🏠 Davom etish", callback_data="home"))
     await show(cb, f"🛒 Savat\n\n{body}\n\n💰 Jami: {money(total)}", kb.as_markup())
 
-
 @r.callback_query(F.data == "noop")
 async def noop(cb: CallbackQuery):
     await cb.answer()
-
 
 @r.callback_query(F.data == "clear")
 async def clear(cb: CallbackQuery):
@@ -187,13 +185,11 @@ async def clear(cb: CallbackQuery):
     db.commit()
     await cb.message.edit_text("🗑 Savat tozalandi.", reply_markup=home_kb())
 
-
 @r.callback_query(F.data == "checkout")
 async def checkout(cb: CallbackQuery, state: FSMContext):
     await state.set_state(Order.name)
     await cb.message.answer("Ismingizni yozing:")
     await cb.answer()
-
 
 @r.message(Order.name)
 async def got_name(m: Message, state: FSMContext):
@@ -203,14 +199,12 @@ async def got_name(m: Message, state: FSMContext):
                              resize_keyboard=True, one_time_keyboard=True)
     await m.answer("Telefon raqamingizni yuboring yoki yozing:", reply_markup=kb)
 
-
 @r.message(Order.phone)
 async def got_phone(m: Message, state: FSMContext):
     phone = m.contact.phone_number if m.contact else m.text
     await state.update_data(phone=phone)
     await state.set_state(Order.date)
     await m.answer("Qaysi kunga kerak? (masalan: 20.11.2026)", reply_markup=ReplyKeyboardRemove())
-
 
 @r.message(Order.date)
 async def got_date(m: Message, state: FSMContext):
@@ -224,12 +218,10 @@ async def got_date(m: Message, state: FSMContext):
     await m.answer(f"👤 {d['name']}\n📞 {d['phone']}\n📅 {d['date']}\n\n{body}\n\n💰 Jami: {money(total)}",
                    reply_markup=kb.as_markup())
 
-
 @r.callback_query(F.data == "cancel")
 async def cancel(cb: CallbackQuery, state: FSMContext):
     await state.clear()
     await cb.message.edit_text("Bekor qilindi.", reply_markup=home_kb())
-
 
 @r.callback_query(F.data == "ok", Order.confirm)
 async def confirm(cb: CallbackQuery, state: FSMContext, bot: Bot):
@@ -252,96 +244,7 @@ async def confirm(cb: CallbackQuery, state: FSMContext, bot: Bot):
     await state.clear()
     await cb.message.edit_text(f"✅ Buyurtma #{oid} qabul qilindi! Tez orada bog'lanamiz.")
 
-
-# ---------- Boshliq buyruqlari ----------
-@r.message(Command("admin"), is_boss)
-async def admin_help(m: Message):
-    await m.answer(
-        "<b>Boshliq buyruqlari</b>\n"
-        "/find so'z — mahsulot ID sini topish\n"
-        "/price ID narx — narxni o'zgartirish\n"
-        "/add Bo'lim | Nomi | Narx — mahsulot qo'shish\n"
-        "/del ID — o'chirish\n"
-        "/orders — oxirgi 10 buyurtma\n"
-        "📷 Rasm biriktirish: rasm yuboring, tagiga tovar ID sini yozing\n"
-        "CSV fayl yuboring (ustunlar: bo'lim,nomi,narx) — ko'p mahsulotni birdan yuklash")
-
-
-@r.message(Command("find"), is_boss)
-async def find(m: Message):
-    q = m.text.partition(" ")[2].strip()
-    rows = db.execute("select * from products where name like ? limit 20", (f"%{q}%",)).fetchall()
-    await m.answer("\n".join(f"#{x['id']} {x['name']} — {money(x['price'])}" for x in rows) or "Topilmadi")
-
-
-@r.message(Command("price"), is_boss)
-async def price(m: Message):
-    try:
-        _, pid, new = m.text.split()
-        db.execute("update products set price=? where id=?", (int(new), int(pid)))
-        db.commit()
-        await m.answer("✅ Narx o'zgartirildi")
-    except Exception:
-        await m.answer("Format: /price 15 25000")
-
-
-@r.message(Command("add"), is_boss)
-async def add_product(m: Message):
-    try:
-        cat, name, p = [s.strip() for s in m.text.partition(" ")[2].split("|")]
-        db.execute("insert into products(cat,name,price) values(?,?,?)", (cat, name, int(p)))
-        db.commit()
-        await m.answer("✅ Qo'shildi")
-    except Exception:
-        await m.answer("Format: /add Idishlar | Piyola | 12000")
-
-
-@r.message(Command("del"), is_boss)
-async def delete(m: Message):
-    try:
-        db.execute("delete from products where id=?", (int(m.text.split()[1]),))
-        db.commit()
-        await m.answer("🗑 O'chirildi")
-    except Exception:
-        await m.answer("Format: /del 15")
-
-
-@r.message(Command("orders"), is_boss)
-async def orders(m: Message):
-    rows = db.execute("select * from orders order by id desc limit 10").fetchall()
-    await m.answer("\n".join(f"#{x['id']} {x['name']} {x['phone']} {x['date']} — {money(x['total'])}"
-                             for x in rows) or "Buyurtma yo'q")
-
-
-@r.message(F.photo, is_boss)
-async def set_photo(m: Message):
-    cap = (m.caption or "").strip()
-    if not cap.isdigit():
-        await m.answer("Rasm tagiga faqat tovar ID sini yozib yuboring. Masalan: 15")
-        return
-    cur = db.execute("update products set photo=? where id=?", (m.photo[-1].file_id, int(cap)))
-    db.commit()
-    await m.answer("✅ Rasm biriktirildi" if cur.rowcount else "Bunday ID topilmadi")
-
-
-@r.message(F.document, is_boss)
-async def import_csv(m: Message, bot: Bot):
-    buf = io.BytesIO()
-    await bot.download(m.document, destination=buf)
-    text = buf.getvalue().decode("utf-8-sig")
-    n = 0
-    for row in csv.reader(io.StringIO(text)):
-        try:
-            db.execute("insert into products(cat,name,price) values(?,?,?)",
-                       (row[0].strip(), row[1].strip(), int(row[2])))
-            n += 1
-        except Exception:
-            continue
-    db.commit()
-    await m.answer(f"✅ {n} ta mahsulot yuklandi")
-
-
-# ---------- Qidiruv ----------
+# Oddiy qidirish
 @r.message(StateFilter(None), F.text, ~F.text.startswith("/"))
 async def search(m: Message):
     rows = db.execute("select * from products where name like ? limit 15", (f"%{m.text}%",)).fetchall()
@@ -354,7 +257,6 @@ async def search(m: Message):
     kb.adjust(1)
     kb.row(InlineKeyboardButton(text="🛒 Savat", callback_data="cart"))
     await m.answer("🔎 Natijalar:", reply_markup=kb.as_markup())
-
 
 async def main():
     global BOT
@@ -373,7 +275,6 @@ async def main():
     dp.include_router(r)
     print("Bot muvaffaqiyatli ishga tushdi!")
     await dp.start_polling(BOT)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
