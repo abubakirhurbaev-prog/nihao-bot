@@ -12,11 +12,13 @@ from aiogram.types import (Message, CallbackQuery, InlineKeyboardButton, WebAppI
                            KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-TOKEN = os.environ["9024883218:AAFjDQhzemG6H6wnBpqcAD1HV2n-MKkIENo"]
-BOSS = int(os.environ["8707797093"])  # boshliqning Telegram ID raqami
-WEBAPP_URL = os.environ.get("https://plum-loralee-24.tiiny.site", "").rstrip("/")  # https://nomi.onrender.com
+# Sizning sozlamalaringiz
+TOKEN = "9024883218:AAFjDQhzemG6H6wnBpqcAD1HV2n-MKkIENo"
+BOSS = 8707797093  # Boshliqning Telegram ID raqami
+BOSS_PHONE = "+1 347 507 9829"  # Boshliqning telefon raqami
+WEBAPP_URL = "https://plum-loralee-24.tiiny.site"
+
 BOT = None
-INDEX = Path(__file__).parent / "web" / "index.html"
 PER_PAGE = 8
 
 db = sqlite3.connect(os.environ.get("DB_PATH", "shop.db"))
@@ -241,7 +243,8 @@ async def confirm(cb: CallbackQuery, state: FSMContext, bot: Bot):
         f"🆕 <b>Yangi buyurtma #{oid}</b>\n"
         f"👤 <a href=\"tg://user?id={uid}\">{html.escape(d['name'])}</a>\n"
         f"📞 {html.escape(d['phone'])}\n📅 {html.escape(d['date'])}\n\n"
-        f"{html.escape(body)}\n\n💰 Jami: <b>{money(total)}</b>")
+        f"{html.escape(body)}\n\n💰 Jami: <b>{money(total)}</b>\n"
+        f"📞 Boshliq raqami: {BOSS_PHONE}")
     await state.clear()
     await cb.message.edit_text(f"✅ Buyurtma #{oid} qabul qilindi! Tez orada bog'lanamiz.")
 
@@ -349,126 +352,22 @@ async def search(m: Message):
     await m.answer("🔎 Natijalar:", reply_markup=kb.as_markup())
 
 
-# ---------- Mini App (veb) ----------
-def check_init(init_data):
-    """Telegram initData imzosini tekshiradi, foydalanuvchini qaytaradi."""
-    try:
-        data = dict(parse_qsl(init_data, keep_blank_values=True))
-        got = data.pop("hash", "")
-        check = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
-        secret = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
-        calc = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
-        if got and hmac.compare_digest(calc, got):
-            return json.loads(data["user"])
-    except Exception:
-        pass
-    return None
-
-
-def err(msg, status=400):
-    return web.json_response({"error": msg}, status=status)
-
-
-async def page(req):
-    return web.FileResponse(INDEX)
-
-
-async def api_products(req):
-    rows = db.execute("select id,cat,name,price,photo from products order by cat,id").fetchall()
-    out = [{"i": x["id"], "c": x["cat"], "n": x["name"], "p": x["price"],
-            "h": hashlib.md5(x["photo"].encode()).hexdigest()[:8] if x["photo"] else ""} for x in rows]
-    return web.json_response(out, headers={"Cache-Control": "no-cache"})
-
-
-async def api_me(req):
-    u = check_init(req.headers.get("X-Init", ""))
-    return web.json_response({"boss": bool(u and u["id"] == BOSS)})
-
-
-PHOTOS = OrderedDict()
-
-
-async def photo(req):
-    row = db.execute("select photo from products where id=?", (int(req.match_info["id"]),)).fetchone()
-    if not row or not row["photo"]:
-        raise web.HTTPNotFound()
-    fid = row["photo"]
-    if fid not in PHOTOS:
-        f = await BOT.get_file(fid)
-        buf = io.BytesIO()
-        await BOT.download_file(f.file_path, buf)
-        PHOTOS[fid] = buf.getvalue()
-        if len(PHOTOS) > 120:
-            PHOTOS.popitem(last=False)
-    return web.Response(body=PHOTOS[fid], content_type="image/jpeg",
-                        headers={"Cache-Control": "public, max-age=604800"})
-
-
-async def api_price(req):
-    try:
-        d = await req.json()
-        u = check_init(d.get("init", ""))
-        if not u or u["id"] != BOSS:
-            return err("Ruxsat yo'q", 403)
-        db.execute("update products set price=? where id=?", (int(d["price"]), int(d["id"])))
-        db.commit()
-        return web.json_response({"ok": True})
-    except (ValueError, KeyError, TypeError):
-        return err("Noto'g'ri so'rov")
-
-
-async def api_order(req):
-    try:
-        d = await req.json()
-        u = check_init(d.get("init", ""))
-        if not u:
-            return err("Do'konni Telegram ichida oching", 401)
-        lines, total = [], 0
-        for it in d.get("items") or []:
-            row = db.execute("select * from products where id=?", (int(it["id"]),)).fetchone()
-            qty = int(it["qty"])
-            if row and 0 < qty <= 999:
-                lines.append(f"{row['name']}\n   {qty} × {money(row['price'])} = {money(qty * row['price'])}")
-                total += qty * row["price"]
-        name = str(d.get("name", "")).strip()[:60]
-        phone = str(d.get("phone", "")).strip()[:30]
-        date = str(d.get("date", "")).strip()[:20]
-    except (ValueError, KeyError, TypeError):
-        return err("Noto'g'ri so'rov")
-    if not (lines and name and phone and date):
-        return err("Ism, telefon, sana va mahsulotlar kerak")
-    cur = db.execute("insert into orders(user_id,name,phone,date,total) values(?,?,?,?,?)",
-                     (u["id"], name, phone, date, total))
-    db.commit()
-    oid = cur.lastrowid
-    body = "\n".join(lines)
-    await BOT.send_message(
-        BOSS,
-        f"🆕 <b>Yangi buyurtma #{oid}</b> (do'kon)\n"
-        f"👤 <a href=\"tg://user?id={u['id']}\">{html.escape(name)}</a>\n"
-        f"📞 {html.escape(phone)}\n📅 {html.escape(date)}\n\n"
-        f"{html.escape(body)}\n\n💰 Jami: <b>{money(total)}</b>")
-    try:
-        await BOT.send_message(u["id"], f"✅ Buyurtma #{oid} qabul qilindi. Jami: {money(total)}")
-    except Exception:
-        pass
-    return web.json_response({"id": oid, "total": total})
-
-
 async def main():
     global BOT
     BOT = Bot(TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+    
     app = web.Application()
-    app.add_routes([web.get("/", page), web.get("/api/products", api_products), web.get("/api/me", api_me),
-                    web.get(r"/photo/{id:\d+}", photo), web.post("/api/price", api_price),
-                    web.post("/api/order", api_order)])
+    app.add_routes([web.get("/", lambda r: web.Response(text="Bot ishlayapti!"))])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", 8080))).start()
+
     if WEBAPP_URL:
         await BOT.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Do'kon", web_app=WebAppInfo(url=WEBAPP_URL)))
+    
     dp = Dispatcher()
     dp.include_router(r)
+    print("Bot muvaffaqiyatli ishga tushdi!")
     await dp.start_polling(BOT)
 
 
